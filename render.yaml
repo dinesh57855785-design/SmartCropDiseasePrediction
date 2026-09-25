@@ -8,6 +8,7 @@ services:
   - type: web
     name: smartcrop-api
     runtime: python
+    plan:free
     buildCommand: cd backend && bash build.sh
     startCommand: cd backend && gunicorn config.wsgi:application
     healthCheckPath: /health/
