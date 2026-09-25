@@ -1,8 +1,6 @@
 class ApiConfig {
-  static const String emulatorBaseUrl = 'http://10.0.2.2:8000/api';
-  static const String defaultBaseUrl = 'http://10.233.255.220:8000/api';
-  static const String localNetworkHint =
-      'Use the laptop LAN IP on the same Wi‑Fi network, currently 10.233.255.220.';
+  static const String defaultBaseUrl =
+      'https://smartcrop-api-dzj2.onrender.com/api';
 
   static String _configuredUrl = defaultBaseUrl;
 
