@@ -1,0 +1,5 @@
+{
+  "appId": "com.example.app",
+  "appName": "smart-crop-disease-prediction-frontend",
+  "webDir": "dist"
+}

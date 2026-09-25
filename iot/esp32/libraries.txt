@@ -1,0 +1,2 @@
+# Wokwi Libraries
+DHT sensor library

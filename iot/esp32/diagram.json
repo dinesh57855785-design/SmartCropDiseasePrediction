@@ -1,0 +1,81 @@
+{
+  "version": 1,
+  "author": "SmartCropDiseasePrediction",
+  "editor": "wokwi",
+  "parts": [
+    {
+      "type": "board-esp32-devkit-c-v4",
+      "id": "esp",
+      "top": 0,
+      "left": 0,
+      "attrs": {}
+    },
+    {
+      "type": "wokwi-dht22",
+      "id": "dht1",
+      "top": -140,
+      "left": 130,
+      "attrs": { "temperature": "28.5", "humidity": "65" }
+    },
+    {
+      "type": "wokwi-potentiometer",
+      "id": "pot_soil",
+      "top": 200,
+      "left": -160,
+      "attrs": { "label": "Soil Moisture (%)", "value": "2500" }
+    },
+    {
+      "type": "wokwi-potentiometer",
+      "id": "pot_water",
+      "top": 200,
+      "left": 160,
+      "attrs": { "label": "Water Tank Level (%)", "value": "3000" }
+    },
+    {
+      "type": "wokwi-relay-module",
+      "id": "relay1",
+      "top": -150,
+      "left": -180,
+      "attrs": {}
+    },
+    {
+      "type": "wokwi-led",
+      "id": "led_pump",
+      "top": -70,
+      "left": -260,
+      "attrs": { "color": "green", "label": "PUMP ACTIVE" }
+    },
+    {
+      "type": "wokwi-resistor",
+      "id": "r1",
+      "top": -20,
+      "left": -230,
+      "attrs": { "value": "220" }
+    }
+  ],
+  "connections": [
+    [ "esp:TX", "$serialMonitor:RX", "", [] ],
+    [ "esp:RX", "$serialMonitor:TX", "", [] ],
+
+    [ "esp:3V3", "dht1:VCC", "red", [ "v0" ] ],
+    [ "esp:GND.1", "dht1:GND", "black", [ "v0" ] ],
+    [ "esp:15", "dht1:SDA", "gold", [ "v0" ] ],
+
+    [ "esp:3V3", "pot_soil:VCC", "red", [ "h0" ] ],
+    [ "esp:GND.2", "pot_soil:GND", "black", [ "h0" ] ],
+    [ "esp:34", "pot_soil:SIG", "orange", [ "h0" ] ],
+
+    [ "esp:3V3", "pot_water:VCC", "red", [ "h0" ] ],
+    [ "esp:GND.2", "pot_water:GND", "black", [ "h0" ] ],
+    [ "esp:35", "pot_water:SIG", "blue", [ "h0" ] ],
+
+    [ "esp:5V", "relay1:VCC", "red", [ "v0" ] ],
+    [ "esp:GND.1", "relay1:GND", "black", [ "v0" ] ],
+    [ "esp:19", "relay1:IN", "purple", [ "v0" ] ],
+
+    [ "esp:18", "r1:1", "green", [ "v0" ] ],
+    [ "r1:2", "led_pump:A", "green", [ "v0" ] ],
+    [ "esp:GND.1", "led_pump:C", "black", [ "v0" ] ]
+  ],
+  "dependencies": {}
+}

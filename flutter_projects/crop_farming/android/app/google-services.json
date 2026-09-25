@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "1009954673436",
+    "project_id": "smartcrop-3a999",
+    "storage_bucket": "smartcrop-3a999.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:1009954673436:android:62ff675f7fa6eb2a2260d9",
+        "android_client_info": {
+          "package_name": "com.example.crop_farming"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDgERRutjuXZbJIp8EglJyCKw4ZY9w0R48"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
