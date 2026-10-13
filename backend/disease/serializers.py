@@ -24,10 +24,12 @@ class PredictionSerializer(serializers.ModelSerializer):
     low_confidence_warning = serializers.SerializerMethodField()
     smart_crop_analysis = serializers.SerializerMethodField()
 
+    prediction_id = serializers.IntegerField(source='id', read_only=True)
+
     class Meta:
         model = DiseasePrediction
         fields = [
-            'id', 'image', 'image_url', 'crop_name', 'predicted_disease',
+            'id', 'prediction_id', 'image', 'image_url', 'crop_name', 'predicted_disease',
             'disease_key', 'confidence', 'confidence_percent', 'confidence_info',
             'treatment_advice', 'is_healthy', 'disease_info',
             'low_confidence_warning', 'smart_crop_analysis', 'created_at',
@@ -52,8 +54,11 @@ class PredictionSerializer(serializers.ModelSerializer):
 
     def get_image_url(self, obj):
         request = self.context.get('request')
-        if obj.image and request:
-            return request.build_absolute_uri(obj.image.url)
+        try:
+            if obj.image and hasattr(obj.image, 'url') and request:
+                return request.build_absolute_uri(obj.image.url)
+        except Exception:
+            pass
         return None
 
     def get_disease_info(self, obj):

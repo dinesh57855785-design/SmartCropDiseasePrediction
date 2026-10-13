@@ -1,4 +1,7 @@
 import sys, os
+import logging
+
+logger = logging.getLogger(__name__)
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
 try:
     from ai_model.soil.prediction.predict_soil import predict_soil_fertility
@@ -1228,12 +1231,15 @@ class SoilAnalysisView(APIView):
 
         if predict_soil_fertility is not None:
             try:
+                logger.info("[SoilAnalysis] Calling AI model with params: N=%s P=%s K=%s ph=%s", params.get('N'), params.get('P'), params.get('K'), params.get('ph'))
                 ai_res = predict_soil_fertility(params)
+                logger.info("[SoilAnalysis] AI result: class=%s conf=%s", ai_res.get('predicted_class'), ai_res.get('confidence'))
             except Exception as e:
+                logger.exception("[SoilAnalysis] AI model error: %s", e)
                 ai_res = {
                     "predicted_class": "Fertile",
                     "confidence": 0.90,
-                    "analysis_type": "AI Soil Fertility Assessment",
+                    "analysis_type": "AI Soil Fertility Assessment (Fallback)",
                     "soil_condition": "Optimal / Fertile Soil",
                     "possible_problem": "No major fertility deficiency detected.",
                     "crop_suitability": "Suitable for most crops.",
@@ -1335,8 +1341,11 @@ class WaterAnalysisView(APIView):
 
         if predict_water_quality is not None:
             try:
+                logger.info("[WaterAnalysis] Calling AI model with params: pH=%s EC=%s TDS=%s", params.get('pH'), params.get('EC'), params.get('TDS'))
                 ai_res = predict_water_quality(params)
+                logger.info("[WaterAnalysis] AI result: class=%s conf=%s", ai_res.get('predicted_class'), ai_res.get('confidence'))
             except Exception as e:
+                logger.exception("[WaterAnalysis] AI model error: %s", e)
                 ai_res = {
                     "predicted_class": "Good",
                     "confidence": 0.95,
@@ -1647,136 +1656,11 @@ class UnifiedRecommendationView(APIView):
 
 
 # ── Soil Image Analysis View ─────────────────────────────────────────────────
-class SoilImageAnalysisView(APIView):
-    """POST /api/advisor/soil-image/ - Color-heuristic soil type prediction."""
-    permission_classes = [permissions.IsAuthenticated]
-
-    def post(self, request):
-        image_file = request.FILES.get('image')
-        if not image_file:
-            return Response({'error': 'No image uploaded.'}, status=status.HTTP_400_BAD_REQUEST)
-        if not image_file.content_type.startswith('image/'):
-            return Response({'error': 'Invalid file type. Upload JPG, PNG, or WEBP.'}, status=status.HTTP_400_BAD_REQUEST)
-        try:
-            from PIL import Image
-            img = Image.open(image_file).convert('RGB').resize((100, 100))
-            pixels = list(img.getdata())
-            avg_r = sum(p[0] for p in pixels) / len(pixels)
-            avg_g = sum(p[1] for p in pixels) / len(pixels)
-            avg_b = sum(p[2] for p in pixels) / len(pixels)
-
-            if avg_r > avg_g + 30 and avg_r > avg_b + 30:
-                soil_type = "Red Soil"
-                suitable = ["Groundnut", "Cotton", "Millets", "Sorghum", "Sunflower"]
-                unsuitable = ["Rice", "Sugarcane"]
-                chars = ["High iron oxide content gives red color", "Good drainage and aeration", "Generally low in nitrogen and phosphorus", "Needs regular organic matter addition"]
-                recs = ["Add compost or farmyard manure (FYM) to improve fertility", "Apply lime if pH is below 5.5", "Use drip irrigation to conserve water", "Grow nitrogen-fixing legumes in rotation"]
-            elif avg_r < 80 and avg_g < 80 and avg_b < 80:
-                soil_type = "Black Cotton Soil"
-                suitable = ["Cotton", "Sugarcane", "Soybean", "Wheat", "Sorghum"]
-                unsuitable = ["Root vegetables (difficult to harvest in heavy clay)"]
-                chars = ["High clay content — shrinks when dry, swells when wet", "Excellent water retention", "Rich in calcium, magnesium, and potassium", "Needs good drainage management"]
-                recs = ["Avoid deep plowing when soil is wet", "Make raised beds or ridges for water drainage", "Add gypsum or organic matter to improve structure", "Monitor for waterlogging during rainy season"]
-            elif avg_r > 160 and avg_g > 140 and avg_b > 110:
-                soil_type = "Sandy Soil"
-                suitable = ["Groundnut", "Sweet Potato", "Watermelon", "Cassava", "Millets"]
-                unsuitable = ["Rice", "Sugarcane"]
-                chars = ["Large particles — drains very quickly", "Low nutrient and water retention", "Warms up quickly in spring", "Easy to work and till"]
-                recs = ["Add large amounts of organic compost to improve water retention", "Irrigate frequently in small amounts (drip preferred)", "Apply mulch to reduce moisture evaporation", "Apply organic fertilizers regularly — nutrients wash away quickly"]
-            elif avg_g > avg_r + 10 and avg_g > avg_b:
-                soil_type = "Alluvial / Loam Soil"
-                suitable = ["Rice", "Maize", "Wheat", "Sugarcane", "Tomato", "Cotton"]
-                unsuitable = []
-                chars = ["Excellent balance of sand, silt, and clay", "High fertility and good moisture retention", "Found near river plains and deltas", "Most productive agricultural soil"]
-                recs = ["Maintain organic matter with regular compost application", "Practice crop rotation to prevent nutrient depletion", "Monitor for waterlogging in low-lying areas", "Standard fertilization schedule based on crop needs"]
-            else:
-                soil_type = "Clay Soil"
-                suitable = ["Rice", "Wheat", "Sugarcane", "Barley"]
-                unsuitable = ["Root vegetables (carrot, radish) — difficult to harvest"]
-                chars = ["Very fine particles — holds water well", "Slow drainage — risk of waterlogging", "Rich in nutrients but can become compacted", "Sticky when wet, hard when dry"]
-                recs = ["Avoid tillage when soil is too wet or too dry", "Add organic matter (compost, manure) to improve drainage", "Use raised bed farming to improve aeration", "Apply gypsum to break up compacted clay"]
-
-            return Response({
-                'soil_type_prediction': soil_type,
-                'soil_characteristics': chars,
-                'suitable_crops': suitable,
-                'unsuitable_crops': unsuitable,
-                'recommendations': recs,
-                'disclaimer': (
-                    'This is an AI-based visual prediction using image color analysis. '
-                    'Actual soil testing (pH, NPK, EC) is strongly recommended for precise '
-                    'agricultural decisions. Contact your local agricultural department for certified testing.'
-                ),
-            })
-        except Exception as e:
-            return Response({'error': f'Analysis failed: {str(e)}'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+# Image analysis views (SoilImageAnalysisView, WaterImageAnalysisView, SoilImageAnalyzerView)
+# are defined in advisor/_image_views.py and imported in advisor/urls.py.
+# The duplicates that were here had IsAuthenticated permission (bug) and have been removed.
 
 
-# ── Water Image Analysis View ─────────────────────────────────────────────────
-class WaterImageAnalysisView(APIView):
-    """POST /api/advisor/water-image/ - Color-heuristic water condition prediction."""
-    permission_classes = [permissions.IsAuthenticated]
-
-    def post(self, request):
-        image_file = request.FILES.get('image')
-        if not image_file:
-            return Response({'error': 'No image uploaded.'}, status=status.HTTP_400_BAD_REQUEST)
-        if not image_file.content_type.startswith('image/'):
-            return Response({'error': 'Invalid file type. Upload JPG, PNG, or WEBP.'}, status=status.HTTP_400_BAD_REQUEST)
-        try:
-            from PIL import Image
-            img = Image.open(image_file).convert('RGB').resize((100, 100))
-            pixels = list(img.getdata())
-            avg_r = sum(p[0] for p in pixels) / len(pixels)
-            avg_g = sum(p[1] for p in pixels) / len(pixels)
-            avg_b = sum(p[2] for p in pixels) / len(pixels)
-
-            if avg_r > avg_b + 25 and avg_g > avg_b:
-                condition = "Turbid / Muddy Water"; color_obs = "brownish/murky"; suit = "Conditionally Suitable — Needs Filtering"
-                obs = ["Water appears turbid with suspended particles", "Brown color indicates high sediment content", "Possible agricultural or construction runoff"]
-                recs = ["Filter through sand/gravel before using on crops", "Allow water to settle for 24 hours before irrigation", "Do not use directly on seedlings"]
-                risks = ["Sediment can clog drip irrigation emitters", "May carry pathogens causing root rot", "High turbidity reduces light in paddy fields"]
-            elif avg_g > avg_r + 15 and avg_g > avg_b + 15:
-                condition = "Algae-Affected Water"; color_obs = "greenish"; suit = "Use with Caution — Treat Before Use"
-                obs = ["Green color indicates presence of algae or aquatic weeds", "Caused by excess nutrients — eutrophication", "May have low dissolved oxygen levels"]
-                recs = ["Aerate the water source to increase dissolved oxygen", "Remove floating algae before drawing water", "Use copper sulfate (1 ppm) for algae control"]
-                risks = ["Algal toxins can damage young seedlings", "Low dissolved oxygen stresses aquatic life", "Possible blockage of irrigation channels"]
-            elif avg_r < 80 and avg_g < 80 and avg_b < 90:
-                condition = "Dark / Contaminated Water"; color_obs = "very dark/black"; suit = "NOT Suitable — Do Not Use"
-                obs = ["Very dark color — stagnant or severely contaminated", "Possible sewage or industrial effluents present", "Extremely low oxygen — anaerobic decomposition"]
-                recs = ["DO NOT use this water on crops", "Report to local pollution control board if near industrial area", "Use borewell or rainwater harvesting as alternative"]
-                risks = ["Severe crop damage and soil contamination risk", "Risk of heavy metal accumulation in soil", "Health hazard — pathogens can enter food supply"]
-            elif avg_r > 140 and avg_g > 110 and avg_b < 100:
-                condition = "Iron-Rich / Yellowish Water"; color_obs = "yellowish/rusty"; suit = "Limited Suitability — Test Before Use"
-                obs = ["Yellowish/rusty color indicates high iron content", "May contain minerals from soil leaching", "Common near laterite or iron-rich geological formations"]
-                recs = ["Test iron content (acceptable limit: <5 mg/L for irrigation)", "Use aeration and sand filtration to reduce iron", "Avoid use on pH-sensitive crops like blueberries or citrus"]
-                risks = ["Excess iron can cause orange leaf streaks on crops", "Can clog drip irrigation emitters with deposits", "May reduce phosphorus availability in soil"]
-            else:
-                condition = "Clear / Good Quality Water"; color_obs = "clear/transparent"; suit = "Suitable for Irrigation"
-                obs = ["Water appears clear — good visual indicator of quality", "No visible sediment, algae, or discoloration detected", "Likely clean groundwater, treated water, or rainwater"]
-                recs = ["Conduct periodic pH and TDS testing to confirm quality", "Use efficient drip or furrow irrigation to minimize waste", "Store collected water in covered tanks to prevent contamination"]
-                risks = ["Visual clarity alone does not guarantee chemical safety", "Annual lab testing for pesticide residues recommended"]
-
-            return Response({
-                'water_condition': condition,
-                'color_observed': color_obs,
-                'suitability': suit,
-                'observations': obs,
-                'recommendations': recs,
-                'risks': risks,
-                'disclaimer': (
-                    'This is a preliminary AI-based visual assessment using image color analysis. '
-                    'Proper water quality testing (pH, TDS, EC, heavy metals, microbial count) is required '
-                    'for accurate agricultural or drinking water decisions. Contact your local agricultural '
-                    'department or water testing laboratory.'
-                ),
-            })
-        except Exception as e:
-            return Response({'error': f'Analysis failed: {str(e)}'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
-
-
-# â”€â”€ Need To Do View â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 class NeedToDoView(APIView):
     """
     POST /api/advisor/need-to-do/
@@ -1958,3 +1842,5 @@ class SeasonalSuggestionsView(APIView):
             "month": month,
             "disclaimer": "Based on available season and weather information. Actual suitability may vary by region, soil type, and local conditions." if lang == "en" else "à®•à®¿à®Ÿà¯ˆà®•à¯à®•à¯à®®à¯ à®ªà®°à¯à®µ à®®à®±à¯à®±à¯à®®à¯ à®µà®¾à®©à®¿à®²à¯ˆ à®¤à®•à®µà®²à¯à®•à®³à®¿à®©à¯ à®…à®Ÿà®¿à®ªà¯à®ªà®Ÿà¯ˆà®¯à®¿à®²à¯. à®‰à®£à¯à®®à¯ˆà®¯à®¾à®© à®ªà¯Šà®°à¯à®¤à¯à®¤à®®à¯ à®ªà®•à¯à®¤à®¿, à®®à®£à¯ à®µà®•à¯ˆ à®®à®±à¯à®±à¯à®®à¯ à®‰à®³à¯à®³à¯‚à®°à¯ à®¨à®¿à®²à¯ˆà®®à¯ˆà®•à®³à®¿à®©à¯ à®…à®Ÿà®¿à®ªà¯à®ªà®Ÿà¯ˆà®¯à®¿à®²à¯ à®®à®¾à®±à¯à®ªà®Ÿà®²à®¾à®®à¯.",
         })
+
+

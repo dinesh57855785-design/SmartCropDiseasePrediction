@@ -9,6 +9,13 @@ import sys
 import numpy as np
 from pathlib import Path
 
+# Configure environment for low-memory CPU inference before TF imports
+os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
+os.environ["OMP_NUM_THREADS"] = "1"
+os.environ["TF_NUM_INTRAOP_THREADS"] = "1"
+os.environ["TF_NUM_INTEROP_THREADS"] = "1"
+os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
+
 # Allow importing sibling packages
 _AI_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_AI_ROOT))
@@ -24,16 +31,22 @@ _MODEL_PATH = _AI_ROOT / 'saved_model' / 'model.h5'
 
 
 def _load_model():
-    """Load the trained Keras model (cached after first load)."""
+    """Load the trained Keras model (cached singleton after first load)."""
     global _model
     if _model is None:
-        import tensorflow as tf
         if not _MODEL_PATH.exists():
             raise FileNotFoundError(
                 f"Trained model not found at {_MODEL_PATH}. "
                 "Run ai_model/training/train.py first."
             )
-        _model = tf.keras.models.load_model(str(_MODEL_PATH))
+        import tensorflow as tf
+        try:
+            tf.config.threading.set_inter_op_parallelism_threads(1)
+            tf.config.threading.set_intra_op_parallelism_threads(1)
+        except Exception:
+            pass
+        # compile=False avoids loading optimizer state, saving 50%+ RAM
+        _model = tf.keras.models.load_model(str(_MODEL_PATH), compile=False)
         print(f"[predict] Model loaded from {_MODEL_PATH}")
     return _model
 
@@ -58,10 +71,15 @@ def predict_disease(image_path: str, top_k: int = 1, crop_name: str = '') -> dic
     # Run inference
     predictions = model.predict(img_array, verbose=0)[0]  # shape: (38,)
 
-    # If crop_name is provided, filter class indices matching that crop
+    # If crop_name is provided and not an auto-detect variant, filter class indices
     valid_indices = list(range(len(DISEASE_CLASSES)))
-    if crop_name.strip():
-        c_clean = crop_name.strip().lower()
+    c_clean = crop_name.strip().lower()
+    AUTO_DETECT_VARIANTS = {
+        '', 'auto', 'auto detect', '(auto detect)', 'auto detect (recommended)',
+        'autodetect', 'all', 'none'
+    }
+
+    if c_clean and c_clean not in AUTO_DETECT_VARIANTS:
         # Map common frontend names to class substrings
         crop_map = {
             'corn': 'corn_(maize)',
@@ -78,19 +96,11 @@ def predict_disease(image_path: str, top_k: int = 1, crop_name: str = '') -> dic
         if filtered:
             valid_indices = filtered
         else:
-            # Crop not supported by the model (e.g., Rice, Cotton, etc.): return healthy fallback
-            return {
-                'disease': f"{crop_name} - Healthy",
-                'disease_key': f"{crop_name}___healthy",
-                'confidence': 0.95,
-                'treatment': 'No treatment needed. Continue regular crop monitoring and care practices.',
-                'is_healthy': True,
-                'top_predictions': [{
-                    'class': f"{crop_name}___healthy",
-                    'disease': f"{crop_name} - Healthy",
-                    'confidence': 0.95,
-                }]
-            }
+            supported_list = "Apple, Blueberry, Cherry, Corn (Maize), Grape, Orange, Peach, Pepper (Bell), Potato, Raspberry, Soybean, Squash, Strawberry, Tomato"
+            raise ValueError(
+                f"Crop '{crop_name}' is not currently supported by the 38-class leaf disease model. "
+                f"Supported crops are: {supported_list}. Select '(Auto Detect)' for automatic crop scanning."
+            )
 
     # Get top-k results within valid indices
     sorted_valid = sorted(valid_indices, key=lambda i: predictions[i], reverse=True)

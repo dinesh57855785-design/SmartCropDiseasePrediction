@@ -1,5 +1,8 @@
 import os
 import sys
+import logging
+
+logger = logging.getLogger(__name__)
 from pathlib import Path
 from django.conf import settings
 from rest_framework import generics, permissions, status
@@ -7,7 +10,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework.parsers import MultiPartParser, FormParser
 
-from .models import DiseasePrediction, DiseaseInfo
+from .models import DiseasePrediction, DiseaseInfo, get_confidence_info
 from .serializers import (
     PredictionSerializer, PredictionUploadSerializer,
     DiseaseInfoSerializer
@@ -20,111 +23,21 @@ sys.path.insert(0, str(AI_MODEL_DIR))
 
 def run_prediction(image_path, crop_name=''):
     """
-    Run the AI prediction on an image.
-    Falls back to deterministic mock data if the model is not yet trained.
+    Run the AI prediction on an image using the trained model.
+    Logs all exceptions so they appear in Render server logs.
     """
     try:
         from prediction.predict import predict_disease
+        logger.info("[LeafAnalysis] Running AI prediction: path=%s crop=%s", image_path, crop_name)
         result = predict_disease(str(image_path), crop_name=crop_name)
+        logger.info("[LeafAnalysis] AI prediction result: %s", result)
         return result
-    except Exception:
-        # Deterministic mock prediction for development when model is not trained yet
-        import hashlib
-
-        # All mock disease entries grouped by crop
-        MOCK_DISEASES = {
-            'Tomato': [
-                ('Tomato___Early_blight',   'Tomato – Early Blight',     False),
-                ('Tomato___Late_blight',    'Tomato – Late Blight',      False),
-                ('Tomato___Bacterial_spot',  'Tomato – Bacterial Spot',   False),
-                ('Tomato___Leaf_Mold',       'Tomato – Leaf Mold',        False),
-                ('Tomato___Septoria_leaf_spot', 'Tomato – Septoria Leaf Spot', False),
-                ('Tomato___healthy',        'Tomato – Healthy',          True),
-            ],
-            'Potato': [
-                ('Potato___Early_blight',   'Potato – Early Blight',     False),
-                ('Potato___Late_blight',    'Potato – Late Blight',      False),
-                ('Potato___healthy',        'Potato – Healthy',          True),
-            ],
-            'Corn': [
-                ('Corn_(maize)___Cercospora_leaf_spot Gray_leaf_spot', 'Corn – Gray Leaf Spot', False),
-                ('Corn_(maize)___Common_rust_', 'Corn – Common Rust', False),
-                ('Corn_(maize)___Northern_Leaf_Blight', 'Corn – Northern Leaf Blight', False),
-                ('Corn_(maize)___healthy', 'Corn – Healthy', True),
-            ],
-            'Apple': [
-                ('Apple___Apple_scab', 'Apple – Apple Scab', False),
-                ('Apple___Black_rot', 'Apple – Black Rot', False),
-                ('Apple___Cedar_apple_rust', 'Apple – Cedar Apple Rust', False),
-                ('Apple___healthy', 'Apple – Healthy', True),
-            ],
-            'Grape': [
-                ('Grape___Black_rot', 'Grape – Black Rot', False),
-                ('Grape___Esca_(Black_Measles)', 'Grape – Black Measles', False),
-                ('Grape___Leaf_blight_(Isariopsis_Leaf_Spot)', 'Grape – Leaf Blight', False),
-                ('Grape___healthy', 'Grape – Healthy', True),
-            ],
-            'Pepper': [
-                ('Pepper,_bell___Bacterial_spot', 'Bell Pepper – Bacterial Spot', False),
-                ('Pepper,_bell___healthy', 'Bell Pepper – Healthy', True),
-            ],
-            'Rice': [
-                ('Rice___healthy', 'Rice – Healthy', True),
-            ],
-            'Cotton': [
-                ('Cotton___healthy', 'Cotton – Healthy', True),
-            ],
-            'Groundnut': [
-                ('Groundnut___healthy', 'Groundnut – Healthy', True),
-            ],
-            'Sugarcane': [
-                ('Sugarcane___healthy', 'Sugarcane – Healthy', True),
-            ],
-            'Wheat': [
-                ('Wheat___healthy', 'Wheat – Healthy', True),
-            ],
-            'Other': [
-                ('Other___healthy', 'Other – Healthy', True),
-            ],
-        }
-
-        # Use image file hash for deterministic results
-        try:
-            with open(image_path, 'rb') as f:
-                file_hash = hashlib.md5(f.read()).hexdigest()
-            hash_int = int(file_hash, 16)
-        except Exception:
-            hash_int = hash(str(image_path))
-
-        # Select disease pool based on crop_name
-        crop_key = crop_name.strip().capitalize() if crop_name else ''
-        if crop_key in MOCK_DISEASES:
-            pool = MOCK_DISEASES[crop_key]
-        else:
-            # Flatten all diseases when no crop specified
-            pool = []
-            for diseases in MOCK_DISEASES.values():
-                pool.extend(diseases)
-
-        # Deterministic selection based on image hash
-        idx = hash_int % len(pool)
-        disease_key, disease_name, is_healthy = pool[idx]
-
-        # Deterministic confidence based on different bits of the hash
-        confidence = 0.55 + (((hash_int >> 8) % 42) / 100.0)
-        confidence = round(min(confidence, 0.97), 4)
-
-        treatment = 'Consult a local agricultural extension office for specific treatment recommendations.'
-        if is_healthy:
-            treatment = 'No treatment needed. Continue regular crop monitoring and care practices.'
-
-        return {
-            'disease': disease_name,
-            'disease_key': disease_key,
-            'confidence': confidence,
-            'treatment': treatment,
-            'is_healthy': is_healthy,
-        }
+    except ValueError as ve:
+        logger.warning("[LeafAnalysis] Unsupported crop error: %s", ve)
+        raise
+    except Exception as model_exc:
+        logger.error("[LeafAnalysis] AI model prediction failed: %s", model_exc)
+        raise
 
 
 class PredictDiseaseView(APIView):
@@ -137,67 +50,152 @@ class PredictDiseaseView(APIView):
     parser_classes = [MultiPartParser, FormParser]
 
     def post(self, request, *args, **kwargs):
-        serializer = PredictionUploadSerializer(data=request.data)
-        if not serializer.is_valid():
-            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-
-        image = serializer.validated_data['image']
-        crop_name = serializer.validated_data.get('crop_name', '')
-
-        # Validate file type
-        if not image.content_type.startswith('image/'):
-            return Response(
-                {'error': 'Please upload a valid image file (JPG, PNG, WEBP).'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-
-        # Save image temporarily for inference
-        import tempfile
-        with tempfile.NamedTemporaryFile(suffix='.jpg', delete=False) as tmp:
-            for chunk in image.chunks():
-                tmp.write(chunk)
-            tmp_path = tmp.name
-
         try:
-            result = run_prediction(tmp_path, crop_name)
-        except Exception as e:
-            return Response(
-                {'error': f'Prediction failed: {str(e)}. Please try again with a clearer image.'},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
-            )
-        finally:
-            if os.path.exists(tmp_path):
-                os.unlink(tmp_path)
+            serializer = PredictionUploadSerializer(data=request.data)
+            if not serializer.is_valid():
+                return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
-        # Resolve user for database record
-        user = request.user if (request.user and request.user.is_authenticated) else None
-        if not user:
-            from django.contrib.auth import get_user_model
-            User = get_user_model()
-            user = User.objects.first()
-            if not user:
-                user, _ = User.objects.get_or_create(
-                    username='tablet_farmer',
-                    defaults={'first_name': 'Tablet', 'last_name': 'Farmer', 'role': 'Farmer'}
+            image = serializer.validated_data['image']
+            crop_name = serializer.validated_data.get('crop_name', '')
+
+            # Validate file type (flexible for mobile and camera uploads)
+            content_type = getattr(image, 'content_type', '') or ''
+            image_name = getattr(image, 'name', '') or ''
+            is_image_content = content_type.startswith('image/') or content_type == 'application/octet-stream'
+            is_image_ext = any(image_name.lower().endswith(ext) for ext in ('.jpg', '.jpeg', '.png', '.webp', '.bmp', '.gif'))
+            if not (is_image_content or is_image_ext):
+                return Response(
+                    {'error': 'Please upload a valid image file (JPG, PNG, WEBP).'},
+                    status=status.HTTP_400_BAD_REQUEST
                 )
 
-        # Save prediction to database
-        image.seek(0)
-        prediction = DiseasePrediction.objects.create(
-            user=user,
-            image=image,
-            crop_name=crop_name or result.get('disease', '').split('–')[0].strip(),
-            predicted_disease=result['disease'],
-            disease_key=result.get('disease_key', ''),
-            confidence=result['confidence'],
-            treatment_advice=result.get('treatment', ''),
-            is_healthy=result.get('is_healthy', False),
-        )
+            # Save image temporarily for inference
+            import tempfile
+            tmp_path = None
+            try:
+                with tempfile.NamedTemporaryFile(suffix='.jpg', delete=False) as tmp:
+                    for chunk in image.chunks():
+                        tmp.write(chunk)
+                    tmp_path = tmp.name
 
-        return Response(
-            PredictionSerializer(prediction, context={'request': request}).data,
-            status=status.HTTP_201_CREATED
-        )
+                try:
+                    logger.info("[LeafAnalysis] Saved upload to tmp: %s", tmp_path)
+                    result = run_prediction(tmp_path, crop_name)
+                    if not result:
+                        raise RuntimeError("AI model returned empty result.")
+                except Exception as pred_exc:
+                    logger.exception("[LeafAnalysis] Prediction failed for %s: %s", tmp_path, pred_exc)
+                    # Re-raise so the outer handler can return a proper error
+                    raise
+            finally:
+                if tmp_path and os.path.exists(tmp_path):
+                    try:
+                        os.unlink(tmp_path)
+                    except Exception:
+                        pass
+
+            # Resolve user for database record
+            user = request.user if (request.user and request.user.is_authenticated) else None
+            if not user:
+                try:
+                    from django.contrib.auth import get_user_model
+                    User = get_user_model()
+                    user = User.objects.first()
+                    if not user:
+                        user, _ = User.objects.get_or_create(
+                            username='tablet_farmer',
+                            defaults={'first_name': 'Tablet', 'last_name': 'Farmer', 'role': 'Farmer'}
+                        )
+                except Exception:
+                    user = None
+
+            # Save prediction to database safely
+            prediction = None
+            try:
+                try:
+                    image.seek(0)
+                except Exception:
+                    pass
+                if user is not None:
+                    prediction = DiseasePrediction.objects.create(
+                        user=user,
+                        image=image,
+                        crop_name=crop_name or (result.get('disease', '').split('–')[0].split('-')[0].strip()),
+                        predicted_disease=result['disease'],
+                        disease_key=result.get('disease_key', ''),
+                        confidence=result['confidence'],
+                        treatment_advice=result.get('treatment', ''),
+                        is_healthy=result.get('is_healthy', False),
+                    )
+            except Exception:
+                prediction = None
+
+            if prediction is not None:
+                try:
+                    serialized_data = PredictionSerializer(prediction, context={'request': request}).data
+                    return Response(serialized_data, status=status.HTTP_201_CREATED)
+                except Exception:
+                    pass
+
+            # Direct response construction if DB record creation or serialization fails
+            crop_resolved = crop_name or (result.get('disease', '').split('–')[0].split('-')[0].strip())
+            conf = float(result.get('confidence', 0.90))
+            is_healthy = bool(result.get('is_healthy', False))
+            disease_name = result.get('disease', 'Healthy Crop')
+            disease_key = result.get('disease_key', '')
+            treatment = result.get('treatment', '')
+
+            disease_info_data = None
+            if disease_key:
+                try:
+                    d_info = DiseaseInfo.objects.filter(disease_key=disease_key).first()
+                    if d_info:
+                        disease_info_data = DiseaseInfoSerializer(d_info).data
+                except Exception:
+                    disease_info_data = None
+
+            smart_analysis = None
+            try:
+                from advisor.views import generate_smart_crop_recommendation
+                smart_analysis = generate_smart_crop_recommendation(
+                    crop=crop_resolved,
+                    disease=disease_name,
+                    confidence=conf,
+                    is_healthy=is_healthy,
+                    treatment=treatment,
+                )
+            except Exception:
+                smart_analysis = None
+
+            fallback_data = {
+                'id': 0,
+                'crop_name': crop_resolved,
+                'predicted_disease': disease_name,
+                'disease_key': disease_key,
+                'confidence': conf,
+                'confidence_percent': f"{conf * 100:.1f}%",
+                'confidence_info': get_confidence_info(conf),
+                'treatment_advice': treatment,
+                'is_healthy': is_healthy,
+                'disease_info': disease_info_data,
+                'smart_crop_analysis': smart_analysis,
+                'low_confidence_warning': "Prediction confidence is low. Please capture a clear leaf image and try again." if conf < 0.60 else None,
+            }
+            return Response(fallback_data, status=status.HTTP_200_OK)
+
+        except Exception as main_exc:
+            import traceback
+            tb = traceback.format_exc()
+            logger.error("[LeafAnalysis] POST failed with exception: %s\n%s", main_exc, tb)
+            status_code = status.HTTP_400_BAD_REQUEST if isinstance(main_exc, ValueError) else status.HTTP_500_INTERNAL_SERVER_ERROR
+            return Response(
+                {
+                    'error': str(main_exc),
+                    'error_detail': tb if (hasattr(__import__('django.conf', fromlist=['settings']), 'settings') and
+                                          __import__('django.conf', fromlist=['settings']).settings.DEBUG) else None,
+                },
+                status=status_code,
+            )
 
 
 class PredictionHistoryView(generics.ListAPIView):

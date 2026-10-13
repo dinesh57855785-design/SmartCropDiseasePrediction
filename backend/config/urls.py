@@ -3,6 +3,10 @@ from django.urls import path, include
 from django.conf import settings
 from django.conf.urls.static import static
 from .health import health_check
+from .api_errors import api_not_found, api_server_error
+
+handler404 = 'config.api_errors.api_not_found'
+handler500 = 'config.api_errors.api_server_error'
 
 urlpatterns = [
     path('health/', health_check, name='health-check'),

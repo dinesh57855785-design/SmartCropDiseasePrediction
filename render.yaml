@@ -10,7 +10,7 @@ services:
     runtime: python
     plan: free
     buildCommand: cd backend && bash build.sh
-    startCommand: cd backend && gunicorn config.wsgi:application
+    startCommand: cd backend && gunicorn config.wsgi:application --workers 1 --threads 2 --timeout 120 --worker-class gthread --max-requests 100 --max-requests-jitter 10
     healthCheckPath: /health/
     envVars:
       - key: SECRET_KEY

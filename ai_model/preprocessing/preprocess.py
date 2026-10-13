@@ -20,28 +20,28 @@ def load_image(image_path: str) -> np.ndarray:
     Handles RGBA and grayscale by converting to RGB.
     """
     try:
+        from PIL import Image
+        img = Image.open(image_path).convert('RGB')
+        return np.array(img, dtype=np.float32)
+    except Exception:
         import cv2
         img = cv2.imread(str(image_path))
         if img is None:
             raise ValueError(f"Could not read image at: {image_path}")
         img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-    except ImportError:
-        from PIL import Image
-        img = Image.open(image_path).convert('RGB')
-        img = np.array(img)
-    return img.astype(np.float32)
+        return img.astype(np.float32)
 
 
 def resize_image(img: np.ndarray, size: tuple = IMG_SIZE) -> np.ndarray:
     """Resize image to target size (H, W)."""
     try:
-        import cv2
-        return cv2.resize(img, (size[1], size[0])).astype(np.float32)
-    except ImportError:
         from PIL import Image
         pil_img = Image.fromarray(img.astype(np.uint8))
-        pil_img = pil_img.resize((size[1], size[0]), Image.LANCZOS)
-        return np.array(pil_img).astype(np.float32)
+        pil_img = pil_img.resize((size[1], size[0]), Image.BILINEAR)
+        return np.array(pil_img, dtype=np.float32)
+    except Exception:
+        import cv2
+        return cv2.resize(img, (size[1], size[0])).astype(np.float32)
 
 
 def normalize(img: np.ndarray) -> np.ndarray:

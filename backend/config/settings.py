@@ -6,7 +6,10 @@ from pathlib import Path
 from datetime import timedelta
 import os
 
-import dj_database_url
+try:
+    import dj_database_url
+except ImportError:
+    dj_database_url = None
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -22,8 +25,10 @@ DEBUG = os.environ.get('DEBUG', 'True').lower() in {'1', 'true', 'yes', 'on'}
 configured_hosts = [host.strip() for host in os.environ.get('ALLOWED_HOSTS', '').split(',') if host.strip()]
 render_hostname = os.environ.get('RENDER_EXTERNAL_HOSTNAME', '').strip()
 ALLOWED_HOSTS = configured_hosts + ([render_hostname] if render_hostname else [])
-if DEBUG:
-    ALLOWED_HOSTS += ['localhost', '127.0.0.1', '[::1]']
+if not ALLOWED_HOSTS:
+    ALLOWED_HOSTS = ['*']
+else:
+    ALLOWED_HOSTS += ['localhost', '127.0.0.1', '[::1]', 'testserver', '.onrender.com']
 
 
 # Application definition
@@ -123,6 +128,7 @@ REST_FRAMEWORK = {
         'rest_framework.parsers.MultiPartParser',
         'rest_framework.parsers.FormParser',
     ],
+    'EXCEPTION_HANDLER': 'config.api_errors.api_exception_handler',
 }
 
 
@@ -216,3 +222,42 @@ MEDIA_ROOT = BASE_DIR / 'media'
 AI_MODEL_PATH = BASE_DIR.parent / 'ai_model' / 'saved_model' / 'model.h5'
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+
+# ── Logging — visible in Render server logs ───────────────────────────────────
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    'formatters': {
+        'verbose': {
+            'format': '[{asctime}] {levelname} {name}: {message}',
+            'style': '{',
+        },
+    },
+    'handlers': {
+        'console': {
+            'class': 'logging.StreamHandler',
+            'formatter': 'verbose',
+        },
+    },
+    'root': {
+        'handlers': ['console'],
+        'level': 'INFO',
+    },
+    'loggers': {
+        'disease': {
+            'handlers': ['console'],
+            'level': 'DEBUG',
+            'propagate': False,
+        },
+        'advisor': {
+            'handlers': ['console'],
+            'level': 'DEBUG',
+            'propagate': False,
+        },
+        'django.request': {
+            'handlers': ['console'],
+            'level': 'ERROR',
+            'propagate': False,
+        },
+    },
+}
